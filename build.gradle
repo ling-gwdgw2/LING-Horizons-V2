@@ -146,7 +146,6 @@ dependencies {
 
 test {
     useJUnitPlatform()
-    jvmArgs += ["--add-modules", "jdk.incubator.vector"]
 }
 
 def extractedNativesDir = layout.buildDirectory.dir("extracted-natives")
@@ -194,7 +193,6 @@ tasks.withType(JavaCompile).configureEach {
     it.options.encoding = "UTF-8"
     it.options.release = targetJavaVersion
     it.options.deprecation = true
-    it.options.compilerArgs += ["--add-modules", "jdk.incubator.vector"]
 }
 
 java {

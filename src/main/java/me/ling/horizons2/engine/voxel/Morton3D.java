@@ -1,16 +1,11 @@
 package me.ling.horizons2.engine.voxel;
 
-import jdk.incubator.vector.IntVector;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
-
 /**
  * High-performance 3D Morton Code (Z-Order Curve) encoder and decoder.
  * Provides spatial locality for 32x32x32 voxel volumes (5 bits per axis = 15-bit Morton code).
- * Includes scalar bitwise operations and Java 21 SIMD Vector acceleration.
+ * Pure high-performance bitwise operations compatible with standard Java 21 runtimes without incubator flags.
  */
 public final class Morton3D {
-    private static final VectorSpecies<Integer> SPECIES = IntVector.SPECIES_PREFERRED;
     public static final int GRID_SIZE = 32;
     public static final int TOTAL_VOXELS = GRID_SIZE * GRID_SIZE * GRID_SIZE; // 32,768
     public static final int MAX_CODE = TOTAL_VOXELS - 1;
@@ -51,7 +46,7 @@ public final class Morton3D {
      * In:  ---- ---- ---- ---- ---- ---- ---4 3210
      * Out: ---- ---- ---- ---- ---4 --3- -2-- 1--0
      */
-    private static int expandBits5(int v) {
+    public static int expandBits5(int v) {
         v &= 0x0000001F;
         v = (v | (v << 8)) & 0x0000100F;
         v = (v | (v << 4)) & 0x0000010C3;
@@ -62,7 +57,7 @@ public final class Morton3D {
     /**
      * Compacts every 3rd bit into a contiguous 5-bit integer.
      */
-    private static int compactBits5(int v) {
+    public static int compactBits5(int v) {
         v &= 0x000009249;
         v = (v | (v >> 2)) & 0x0000010C3;
         v = (v | (v >> 4)) & 0x0000100F;
@@ -71,38 +66,11 @@ public final class Morton3D {
     }
 
     /**
-     * Encodes a batch of coordinates using Java 21 SIMD Vector instructions.
+     * Encodes a batch of coordinates.
      */
     public static void batchEncode(int[] xCoords, int[] yCoords, int[] zCoords, int[] outCodes, int length) {
-        int i = 0;
-        int loopBound = SPECIES.loopBound(length);
-
-        for (; i < loopBound; i += SPECIES.length()) {
-            IntVector vx = IntVector.fromArray(SPECIES, xCoords, i);
-            IntVector vy = IntVector.fromArray(SPECIES, yCoords, i);
-            IntVector vz = IntVector.fromArray(SPECIES, zCoords, i);
-
-            // Vectorized expansion
-            IntVector expX = expandVector5(vx);
-            IntVector expY = expandVector5(vy);
-            IntVector expZ = expandVector5(vz);
-
-            IntVector result = expX.or(expY.lanewise(VectorOperators.LSHL, 1))
-                                  .or(expZ.lanewise(VectorOperators.LSHL, 2));
-            result.intoArray(outCodes, i);
-        }
-
-        // Remainder scalar processing
-        for (; i < length; i++) {
+        for (int i = 0; i < length; i++) {
             outCodes[i] = encode(xCoords[i], yCoords[i], zCoords[i]);
         }
-    }
-
-    private static IntVector expandVector5(IntVector v) {
-        v = v.and(0x0000001F);
-        v = v.or(v.lanewise(VectorOperators.LSHL, 8)).and(0x0000100F);
-        v = v.or(v.lanewise(VectorOperators.LSHL, 4)).and(0x0000010C3);
-        v = v.or(v.lanewise(VectorOperators.LSHL, 2)).and(0x000009249);
-        return v;
     }
 }
