@@ -51,10 +51,19 @@ public class VoxelMesher {
         { 1,  0,  0}  // 5: East (+X)
     };
 
+    @FunctionalInterface
+    public interface NeighborVoxelProvider {
+        int getNeighbor(int nx, int ny, int nz);
+    }
+
     /**
      * Builds a MeshResult containing packed quads for a given grid.
      */
     public static MeshResult buildMesh(VoxelGrid32 grid) {
+        return buildMesh(grid, null);
+    }
+
+    public static MeshResult buildMesh(VoxelGrid32 grid, NeighborVoxelProvider neighbors) {
         if (grid.isEmpty()) {
             return new MeshResult(new long[0], 0, new long[0], 0);
         }
@@ -84,12 +93,26 @@ public class VoxelMesher {
                         int ny = y + FACE_OFFSETS[face][1];
                         int nz = z + FACE_OFFSETS[face][2];
 
-                        int neighbor = grid.get(nx, ny, nz);
+                        int neighbor;
+                        if (nx >= 0 && nx < VoxelGrid32.SIZE && ny >= 0 && ny < VoxelGrid32.SIZE && nz >= 0 && nz < VoxelGrid32.SIZE) {
+                            neighbor = grid.get(nx, ny, nz);
+                        } else if (neighbors != null) {
+                            neighbor = neighbors.getNeighbor(nx, ny, nz);
+                        } else {
+                            neighbor = VoxelData.AIR;
+                        }
+
                         boolean neighborIsAir = VoxelData.isAir(neighbor);
                         boolean neighborIsTranslucent = VoxelData.isTranslucent(neighbor);
 
                         // Quad is visible if neighbor is air, or if this is opaque and neighbor is translucent
-                        boolean emitFace = neighborIsAir || (!isTranslucent && neighborIsTranslucent);
+                        // For identical fluids (e.g. water next to water), never emit an internal face
+                        boolean emitFace;
+                        if (isFluid && VoxelData.isFluid(neighbor)) {
+                            emitFace = false;
+                        } else {
+                            emitFace = neighborIsAir || (!isTranslucent && neighborIsTranslucent);
+                        }
 
                         if (emitFace) {
                             long quad = packQuad(x, y, z, face, material, blockLight, skyLight, tint, isTranslucent, isFluid);

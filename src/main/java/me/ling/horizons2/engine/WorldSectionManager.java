@@ -5,6 +5,7 @@ import me.ling.horizons2.engine.renderer.pipeline.RenderPipelineManager;
 import me.ling.horizons2.engine.storage.ILodStorageEngine;
 import me.ling.horizons2.engine.storage.SectionSerializer;
 import me.ling.horizons2.engine.storage.StorageEngineFactory;
+import me.ling.horizons2.engine.voxel.VoxelData;
 import me.ling.horizons2.engine.voxel.VoxelGrid32;
 import me.ling.horizons2.engine.voxel.VoxelMesher;
 import me.ling.horizons2.engine.voxel.VoxelPalette;
@@ -97,14 +98,58 @@ public class WorldSectionManager implements AutoCloseable {
         });
     }
 
+    public int getNeighborVoxel(int sx, int sy, int sz, int nx, int ny, int nz) {
+        int targetSx = sx;
+        int targetSy = sy;
+        int targetSz = sz;
+        int localX = nx;
+        int localY = ny;
+        int localZ = nz;
+
+        if (localX < 0) {
+            targetSx--;
+            localX += 32;
+        } else if (localX >= 32) {
+            targetSx++;
+            localX -= 32;
+        }
+
+        if (localY < 0) {
+            targetSy--;
+            localY += 32;
+        } else if (localY >= 32) {
+            targetSy++;
+            localY -= 32;
+        }
+
+        if (localZ < 0) {
+            targetSz--;
+            localZ += 32;
+        } else if (localZ >= 32) {
+            targetSz++;
+            localZ -= 32;
+        }
+
+        long key = sectionKey(targetSx, targetSy, targetSz);
+        VoxelGrid32 neighborGrid = activeGrids.get(key);
+        if (neighborGrid != null) {
+            return neighborGrid.get(localX, localY, localZ);
+        }
+        return VoxelData.AIR;
+    }
+
     public void queueSectionUpdate(int sx, int sy, int sz, VoxelGrid32 grid) {
+        queueSectionUpdate(sx, sy, sz, grid, true);
+    }
+
+    public void queueSectionUpdate(int sx, int sy, int sz, VoxelGrid32 grid, boolean updateNeighbors) {
         workerPool.submit(() -> {
             try {
                 long key = sectionKey(sx, sy, sz);
                 activeGrids.put(key, grid);
 
-                // Build mesh asynchronously
-                VoxelMesher.MeshResult mesh = VoxelMesher.buildMesh(grid);
+                // Build mesh asynchronously with cross-section boundary neighbor stitching
+                VoxelMesher.MeshResult mesh = VoxelMesher.buildMesh(grid, (nx, ny, nz) -> getNeighborVoxel(sx, sy, sz, nx, ny, nz));
                 activeMeshes.put(key, mesh);
                 needsGpuSync = true;
 
@@ -113,11 +158,28 @@ public class WorldSectionManager implements AutoCloseable {
                     byte[] data = SectionSerializer.serialize(grid);
                     storageEngine.saveSection(sx, sy, sz, data);
                 }
+
+                // If this is an updated section, refresh adjacent loaded neighbors once to stitch boundary walls
+                if (updateNeighbors) {
+                    int[][] neighborOffsets = { {-1, 0, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 1} };
+                    for (int[] off : neighborOffsets) {
+                        int nsx = sx + off[0];
+                        int nsy = sy + off[1];
+                        int nsz = sz + off[2];
+                        long nKey = sectionKey(nsx, nsy, nsz);
+                        VoxelGrid32 nGrid = activeGrids.get(nKey);
+                        if (nGrid != null && activeMeshes.containsKey(nKey)) {
+                            queueSectionUpdate(nsx, nsy, nsz, nGrid, false);
+                        }
+                    }
+                }
             } catch (Exception e) {
                 System.err.println("[LING Horizons 2.0] Error processing section (" + sx + ", " + sy + ", " + sz + "): " + e.getMessage());
             }
         });
     }
+
+    private long lastGpuSyncTime = 0;
 
     /**
      * Synchronizes dirty CPU mesh data into GPU SSBOs. Must be called on OpenGL render thread.
@@ -125,6 +187,13 @@ public class WorldSectionManager implements AutoCloseable {
     public void syncGpuBuffers(double camX, double camY, double camZ) {
         var pipelineMgr = RenderPipelineManager.getInstance();
         if (!needsGpuSync || !pipelineMgr.isInitialized()) return;
+
+        // Throttle full GPU rebuilds to at most once every 300ms to eliminate render-thread stutter
+        long now = System.currentTimeMillis();
+        if (now - lastGpuSyncTime < 300) {
+            return;
+        }
+        lastGpuSyncTime = now;
         needsGpuSync = false;
 
         List<LingMdiRenderer.SectionRenderData> opaqueList = new ArrayList<>(activeMeshes.size());

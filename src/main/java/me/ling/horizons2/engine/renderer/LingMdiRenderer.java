@@ -158,40 +158,33 @@ public class LingMdiRenderer implements AutoCloseable {
         initialized = true;
     }
 
+    private final int[] cachedColorData = new int[VoxelPalette.MAX_MATERIALS * 4];
+
     public void updateMaterialColors(VoxelPalette palette) {
         if (palette == null || materialColorBuffer == null) return;
-        float[] colors = new float[VoxelPalette.MAX_MATERIALS * 4];
         for (int i = 0; i < VoxelPalette.MAX_MATERIALS; i++) {
+            int base = i * 4;
             if (i == 0) {
-                colors[0] = 0.0f;
-                colors[1] = 0.0f;
-                colors[2] = 0.0f;
-                colors[3] = 0.0f;
+                cachedColorData[base + 0] = 0;
+                cachedColorData[base + 1] = 0;
+                cachedColorData[base + 2] = 0;
+                cachedColorData[base + 3] = 0;
                 continue;
             }
 
             BlockState state = palette.getState(i);
-            int rgb = 0x888888;
-            if (state != null) {
-                try {
-                    MapColor mapColor = state.getMapColor(null, null);
-                    if (mapColor != null) {
-                        rgb = mapColor.col;
-                    }
-                } catch (Exception ignored) {}
-            }
-
+            int rgb = me.ling.horizons2.engine.voxel.BlockColorResolver.resolveRgb(state);
             float r = ((rgb >> 16) & 0xFF) / 255.0f;
             float g = ((rgb >> 8) & 0xFF) / 255.0f;
             float b = (rgb & 0xFF) / 255.0f;
-            float a = palette.isTranslucent(i) ? 0.65f : 1.0f;
+            float a = me.ling.horizons2.engine.voxel.BlockColorResolver.resolveAlpha(state, palette.isTranslucent(i), palette.isFluid(i));
 
-            colors[i * 4 + 0] = r;
-            colors[i * 4 + 1] = g;
-            colors[i * 4 + 2] = b;
-            colors[i * 4 + 3] = a;
+            cachedColorData[base + 0] = Float.floatToRawIntBits(r);
+            cachedColorData[base + 1] = Float.floatToRawIntBits(g);
+            cachedColorData[base + 2] = Float.floatToRawIntBits(b);
+            cachedColorData[base + 3] = Float.floatToRawIntBits(a);
         }
-        materialColorBuffer.uploadData(floatArrayToIntArray(colors), GL15.GL_STATIC_DRAW);
+        materialColorBuffer.uploadData(cachedColorData, GL15.GL_DYNAMIC_DRAW);
     }
 
     public void uploadSectionData(List<SectionRenderData> opaqueSections, List<SectionRenderData> translucentSections) {
