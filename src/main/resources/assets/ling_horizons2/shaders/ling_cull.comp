@@ -35,7 +35,7 @@ layout(std430, binding = 2) buffer CounterBuffer {
 // Frustum planes in camera-relative space: ax + by + cz + d = 0
 uniform vec4 uFrustumPlanes[6];
 uniform vec3 uCameraPos;
-uniform uint uTotalSections;
+uniform int uTotalSections;
 
 // Hi-Z Occlusion Culling Uniforms
 layout(binding = 0) uniform sampler2D uHiZTexture;
@@ -126,7 +126,7 @@ bool isBoxOccludedByHiZ(vec3 bMin, vec3 bMax) {
 
 void main() {
     uint index = gl_GlobalInvocationID.x;
-    if (index >= uTotalSections) return;
+    if (index >= uint(uTotalSections)) return;
 
     SectionDrawInfo sec = uSections[index];
     if (sec.minPos.w <= 0.0 || sec.quadCount == 0u) {

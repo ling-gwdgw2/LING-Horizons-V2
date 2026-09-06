@@ -105,6 +105,11 @@ public class GlProgram implements AutoCloseable {
         if (loc >= 0) GL20.glUniform1i(loc, val);
     }
 
+    public void setUniformUInt(String name, int val) {
+        int loc = getUniformLocation(name);
+        if (loc >= 0) org.lwjgl.opengl.GL30.glUniform1ui(loc, val);
+    }
+
     public void setUniformInt2(String name, int x, int y) {
         int loc = getUniformLocation(name);
         if (loc >= 0) GL20.glUniform2i(loc, x, y);
