@@ -1,6 +1,7 @@
 package me.ling.horizons2.engine;
 
 import me.ling.horizons2.engine.renderer.LingMdiRenderer;
+import me.ling.horizons2.engine.renderer.pipeline.RenderPipelineManager;
 import me.ling.horizons2.engine.storage.ILodStorageEngine;
 import me.ling.horizons2.engine.storage.SectionSerializer;
 import me.ling.horizons2.engine.storage.StorageEngineFactory;
@@ -41,7 +42,6 @@ public class WorldSectionManager implements AutoCloseable {
     );
 
     private ILodStorageEngine storageEngine;
-    private LingMdiRenderer renderer;
     private volatile boolean initialized = false;
     private volatile boolean needsGpuSync = false;
 
@@ -57,15 +57,11 @@ public class WorldSectionManager implements AutoCloseable {
             storageEngine = StorageEngineFactory.createEngine(engineType);
             storageEngine.initialize(worldSaveDir.resolve("ling_horizons2"));
 
-            renderer = new LingMdiRenderer();
-            renderer.initialize();
+            RenderPipelineManager.getInstance().initialize();
             initialized = true;
         } catch (Exception e) {
             System.err.println("[LING Horizons 2.0] Storage/Renderer init warning: " + e.getMessage());
-            if (renderer == null) {
-                renderer = new LingMdiRenderer();
-                renderer.initialize();
-            }
+            RenderPipelineManager.getInstance().initialize();
             initialized = true;
         }
     }
@@ -126,36 +122,65 @@ public class WorldSectionManager implements AutoCloseable {
     /**
      * Synchronizes dirty CPU mesh data into GPU SSBOs. Must be called on OpenGL render thread.
      */
-    public void syncGpuBuffers() {
-        if (!needsGpuSync || renderer == null || !renderer.isInitialized()) return;
+    public void syncGpuBuffers(double camX, double camY, double camZ) {
+        var pipelineMgr = RenderPipelineManager.getInstance();
+        if (!needsGpuSync || !pipelineMgr.isInitialized()) return;
         needsGpuSync = false;
 
-        List<LingMdiRenderer.SectionRenderData> sectionList = new ArrayList<>(activeMeshes.size());
+        List<LingMdiRenderer.SectionRenderData> opaqueList = new ArrayList<>(activeMeshes.size());
+        List<LingMdiRenderer.SectionRenderData> translucentList = new ArrayList<>(activeMeshes.size() / 2);
+
         for (Map.Entry<Long, VoxelMesher.MeshResult> entry : activeMeshes.entrySet()) {
             long key = entry.getKey();
             VoxelMesher.MeshResult mesh = entry.getValue();
-            if (mesh != null && mesh.opaqueCount > 0) {
+            if (mesh != null) {
                 int sx = unpackX(key);
                 int sy = unpackY(key);
                 int sz = unpackZ(key);
-                sectionList.add(new LingMdiRenderer.SectionRenderData(sx, sy, sz, mesh.opaqueQuads, mesh.opaqueCount));
+
+                if (mesh.opaqueCount > 0) {
+                    opaqueList.add(new LingMdiRenderer.SectionRenderData(sx, sy, sz, mesh.opaqueQuads, mesh.opaqueCount));
+                }
+                if (mesh.translucentCount > 0) {
+                    translucentList.add(new LingMdiRenderer.SectionRenderData(sx, sy, sz, mesh.translucentQuads, mesh.translucentCount));
+                }
             }
         }
-        renderer.uploadSectionData(sectionList);
-        renderer.updateMaterialColors(VoxelPalette.getInstance());
+
+        // Sort translucent sections back-to-front for proper alpha blending
+        translucentList.sort((a, b) -> {
+            double da = (a.sx * 32.0 + 16.0 - camX) * (a.sx * 32.0 + 16.0 - camX)
+                      + (a.sy * 32.0 + 16.0 - camY) * (a.sy * 32.0 + 16.0 - camY)
+                      + (a.sz * 32.0 + 16.0 - camZ) * (a.sz * 32.0 + 16.0 - camZ);
+            double db = (b.sx * 32.0 + 16.0 - camX) * (b.sx * 32.0 + 16.0 - camX)
+                      + (b.sy * 32.0 + 16.0 - camY) * (b.sy * 32.0 + 16.0 - camY)
+                      + (b.sz * 32.0 + 16.0 - camZ) * (b.sz * 32.0 + 16.0 - camZ);
+            return Double.compare(db, da);
+        });
+
+        pipelineMgr.uploadSectionData(opaqueList, translucentList);
+        if (pipelineMgr.getVanillaPipeline() != null && pipelineMgr.getVanillaPipeline().isReady()) {
+            pipelineMgr.getVanillaPipeline().getMdiRenderer().updateMaterialColors(VoxelPalette.getInstance());
+        }
+        if (pipelineMgr.getIrisPipeline() != null && pipelineMgr.getIrisPipeline().isReady()) {
+            pipelineMgr.getIrisPipeline().getMdiRenderer().updateMaterialColors(VoxelPalette.getInstance());
+        }
     }
 
     public synchronized void clearWorld() {
         activeGrids.clear();
         activeMeshes.clear();
-        if (renderer != null) {
-            renderer.setTotalSections(0);
-        }
+        RenderPipelineManager.getInstance().clear();
         needsGpuSync = false;
     }
 
     public LingMdiRenderer getRenderer() {
-        return renderer;
+        var vp = RenderPipelineManager.getInstance().getVanillaPipeline();
+        return (vp != null) ? vp.getMdiRenderer() : null;
+    }
+
+    public RenderPipelineManager getPipelineManager() {
+        return RenderPipelineManager.getInstance();
     }
 
     public boolean isInitialized() {
@@ -171,10 +196,7 @@ public class WorldSectionManager implements AutoCloseable {
             } catch (Exception ignored) {}
             storageEngine = null;
         }
-        if (renderer != null) {
-            renderer.close();
-            renderer = null;
-        }
+        RenderPipelineManager.getInstance().close();
         activeGrids.clear();
         activeMeshes.clear();
         initialized = false;

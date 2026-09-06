@@ -4,5 +4,7 @@
     "ling_horizons2.options.enabled": "Enable Voxel LOD",
     "ling_horizons2.options.render_distance": "LOD Render Distance",
     "ling_horizons2.options.earth_curvature": "Planetary Curvature",
-    "ling_horizons2.options.storage_engine": "Storage Backend"
+    "ling_horizons2.options.storage_engine": "Storage Backend",
+    "key.categories.ling_horizons2": "LING Horizons 2.0",
+    "key.ling_horizons2.config": "Open Settings Menu"
 }

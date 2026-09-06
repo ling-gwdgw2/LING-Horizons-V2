@@ -89,4 +89,34 @@ public class ChunkIngestEngine {
             sectionManager.queueSectionUpdate(ssx, ssy, ssz, grid);
         }
     }
+
+    /**
+     * Updates an individual voxel when a block is placed or broken in real-time.
+     */
+    public void onBlockChanged(int bx, int by, int bz, BlockState state) {
+        WorldSectionManager sectionManager = WorldSectionManager.getInstance();
+        if (!sectionManager.isInitialized()) return;
+
+        int sx = Math.floorDiv(bx, 32);
+        int sy = Math.floorDiv(by, 32);
+        int sz = Math.floorDiv(bz, 32);
+        int ox = Math.floorMod(bx, 32);
+        int oy = Math.floorMod(by, 32);
+        int oz = Math.floorMod(bz, 32);
+
+        VoxelGrid32 grid = sectionManager.getOrCreateGrid(sx, sy, sz);
+        VoxelPalette palette = VoxelPalette.getInstance();
+
+        if (state == null || state.isAir()) {
+            grid.set(ox, oy, oz, VoxelData.AIR);
+        } else {
+            int matId = palette.getOrCreateId(state);
+            boolean translucent = palette.isTranslucent(matId);
+            boolean fluid = palette.isFluid(matId);
+            int voxel = VoxelData.pack(matId, 0, 15, 0x3F, translucent, fluid, 0);
+            grid.set(ox, oy, oz, voxel);
+        }
+
+        sectionManager.queueSectionUpdate(sx, sy, sz, grid);
+    }
 }

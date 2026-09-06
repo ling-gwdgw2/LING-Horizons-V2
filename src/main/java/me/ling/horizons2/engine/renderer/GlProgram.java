@@ -75,14 +75,13 @@ public class GlProgram implements AutoCloseable {
         return GL20.glGetUniformLocation(programId, name);
     }
 
+    private final float[] matrixBuffer = new float[16];
+
     public void setUniformMatrix4(String name, Matrix4f mat) {
         int loc = getUniformLocation(name);
         if (loc >= 0) {
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                var fb = stack.mallocFloat(16);
-                mat.get(fb);
-                GL20.glUniformMatrix4fv(loc, false, fb);
-            }
+            mat.get(matrixBuffer);
+            GL20.glUniformMatrix4fv(loc, false, matrixBuffer);
         }
     }
 
@@ -104,6 +103,11 @@ public class GlProgram implements AutoCloseable {
     public void setUniformInt(String name, int val) {
         int loc = getUniformLocation(name);
         if (loc >= 0) GL20.glUniform1i(loc, val);
+    }
+
+    public void setUniformInt2(String name, int x, int y) {
+        int loc = getUniformLocation(name);
+        if (loc >= 0) GL20.glUniform2i(loc, x, y);
     }
 
     @Override

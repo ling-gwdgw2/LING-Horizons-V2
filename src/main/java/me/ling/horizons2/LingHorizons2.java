@@ -27,8 +27,16 @@ public class LingHorizons2 {
         // Register Client Config
         modContainer.registerConfig(ModConfig.Type.CLIENT, LingConfig.CLIENT_SPEC);
 
+        if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+            modEventBus.addListener(me.ling.horizons2.neoforge.gui.LingKeyBindings::registerKeyMappings);
+            modContainer.registerExtensionPoint(net.neoforged.neoforge.client.gui.IConfigScreenFactory.class, (container, parent) -> new me.ling.horizons2.neoforge.gui.LingConfigScreen(parent));
+        }
+
         // Register In-Game Commands
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
+
+        // Register Client Event Handlers
+        NeoForge.EVENT_BUS.register(me.ling.horizons2.neoforge.event.LingClientEvents.class);
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {

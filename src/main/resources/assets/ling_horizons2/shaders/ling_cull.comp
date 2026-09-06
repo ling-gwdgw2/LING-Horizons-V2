@@ -37,6 +37,13 @@ uniform vec4 uFrustumPlanes[6];
 uniform vec3 uCameraPos;
 uniform uint uTotalSections;
 
+// Hi-Z Occlusion Culling Uniforms
+layout(binding = 0) uniform sampler2D uHiZTexture;
+uniform int uUseHiZ;            // 1 if Hi-Z is enabled and valid, 0 otherwise
+uniform ivec2 uHiZSize;         // Base size of Hi-Z texture
+uniform int uHiZMaxLevel;       // Maximum mip level in Hi-Z pyramid
+uniform mat4 uViewProjMatrix;   // Camera-relative View-Projection matrix
+
 bool isBoxInFrustum(vec3 bMin, vec3 bMax) {
     for (int i = 0; i < 6; i++) {
         vec4 plane = uFrustumPlanes[i];
@@ -51,6 +58,70 @@ bool isBoxInFrustum(vec3 bMin, vec3 bMax) {
         }
     }
     return true;
+}
+
+bool isBoxOccludedByHiZ(vec3 bMin, vec3 bMax) {
+    if (uUseHiZ == 0) return false;
+
+    vec3 corners[8] = vec3[8](
+        vec3(bMin.x, bMin.y, bMin.z),
+        vec3(bMax.x, bMin.y, bMin.z),
+        vec3(bMin.x, bMax.y, bMin.z),
+        vec3(bMax.x, bMax.y, bMin.z),
+        vec3(bMin.x, bMin.y, bMax.z),
+        vec3(bMax.x, bMin.y, bMax.z),
+        vec3(bMin.x, bMax.y, bMax.z),
+        vec3(bMax.x, bMax.y, bMax.z)
+    );
+
+    vec3 minNDC = vec3(1.0);
+    vec3 maxNDC = vec3(-1.0);
+
+    for (int i = 0; i < 8; i++) {
+        vec4 clip = uViewProjMatrix * vec4(corners[i], 1.0);
+        // If box intersects or is behind camera near plane, do not cull with Hi-Z
+        if (clip.w <= 0.05) {
+            return false;
+        }
+        vec3 ndc = clip.xyz / clip.w;
+        minNDC = min(minNDC, ndc);
+        maxNDC = max(maxNDC, ndc);
+    }
+
+    // Convert NDC [-1, 1] to UV [0, 1]
+    vec2 minUV = clamp(minNDC.xy * 0.5 + 0.5, 0.0, 1.0);
+    vec2 maxUV = clamp(maxNDC.xy * 0.5 + 0.5, 0.0, 1.0);
+
+    // Box nearest depth in [0, 1]
+    float boxNearestDepth = clamp(minNDC.z * 0.5 + 0.5, 0.0, 1.0);
+
+    // If box takes up full screen or has invalid size, don't cull
+    vec2 boxPixels = (maxUV - minUV) * vec2(uHiZSize);
+    float maxDim = max(boxPixels.x, boxPixels.y);
+    if (maxDim < 1.0 || (maxUV.x - minUV.x) >= 0.98 || (maxUV.y - minUV.y) >= 0.98) {
+        return false;
+    }
+
+    // Determine conservative mip level
+    float mip = clamp(floor(log2(maxDim)), 0.0, float(uHiZMaxLevel));
+    int ml = int(mip);
+
+    ivec2 mipSize = max(ivec2(1), uHiZSize >> ml);
+    ivec2 minTexel = clamp(ivec2(minUV * vec2(mipSize)), ivec2(0), mipSize - 1);
+    ivec2 maxTexel = clamp(ivec2(maxUV * vec2(mipSize)), ivec2(0), mipSize - 1);
+
+    // Sample 2x2 texels in the conservative mip level
+    float maxOccluderDepth = 0.0;
+    for (int x = minTexel.x; x <= min(minTexel.x + 2, maxTexel.x); x++) {
+        for (int y = minTexel.y; y <= min(minTexel.y + 2, maxTexel.y); y++) {
+            float d = texelFetch(uHiZTexture, ivec2(x, y), ml).r;
+            maxOccluderDepth = max(maxOccluderDepth, d);
+        }
+    }
+
+    // If the farthest occluder in the footprint is closer than our box's closest point,
+    // then the entire box is completely hidden behind terrain!
+    return (maxOccluderDepth <= (boxNearestDepth - 0.0005));
 }
 
 void main() {
@@ -72,6 +143,11 @@ void main() {
     vec3 relMax = sec.maxPos.xyz - uCameraPos;
 
     bool visible = isBoxInFrustum(relMin, relMax);
+    if (visible) {
+        if (isBoxOccludedByHiZ(relMin, relMax)) {
+            visible = false;
+        }
+    }
 
     DrawArraysIndirectCommand cmd;
     cmd.count = sec.quadCount * 6u;

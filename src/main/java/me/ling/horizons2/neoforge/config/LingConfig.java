@@ -19,6 +19,7 @@ public class LingConfig {
         public final ModConfigSpec.IntValue renderDistance;
         public final ModConfigSpec.DoubleValue curvatureRadius;
         public final ModConfigSpec.EnumValue<EngineType> storageEngine;
+        public final ModConfigSpec.BooleanValue enableHiZCulling;
 
         public Client(ModConfigSpec.Builder builder) {
             builder.comment("LING Horizons 2.0 Client Configuration").push("client");
@@ -38,6 +39,10 @@ public class LingConfig {
             storageEngine = builder
                 .comment("Chunk LOD Persistence Backend (ROCKSDB or SQLITE)")
                 .defineEnum("storageEngine", EngineType.SQLITE);
+
+            enableHiZCulling = builder
+                .comment("Enable GPU Hi-Z Occlusion Culling (discards occluded sections behind mountains/terrain)")
+                .define("enableHiZCulling", true);
 
             builder.pop();
         }
