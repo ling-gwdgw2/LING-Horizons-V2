@@ -1,0 +1,29 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="LGPL-3.0"
+issueTrackerURL="https://github.com/ling-gwdgw2/LING-Horizons-2/issues"
+
+[[mods]]
+modId="ling_horizons2"
+version="${version}"
+displayName="LING Horizons 2.0"
+displayURL="https://github.com/ling-gwdgw2/LING-Horizons-2"
+authors="LING"
+description='''
+Next-Generation GPU-Driven Voxel Level-of-Detail (LOD) Rendering Engine for Minecraft 1.21.1 on NeoForge.
+Authored from the ground up featuring Linear Morton Octrees, SIMD Vector bit-packing, OpenGL 4.6 Multi-Draw Indirect, and planetary curvature.
+'''
+
+[[dependencies.ling_horizons2]]
+    modId="neoforge"
+    type="required"
+    versionRange="[21.1.0,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.ling_horizons2]]
+    modId="minecraft"
+    type="required"
+    versionRange="[1.21.1,1.21.2)"
+    ordering="NONE"
+    side="BOTH"

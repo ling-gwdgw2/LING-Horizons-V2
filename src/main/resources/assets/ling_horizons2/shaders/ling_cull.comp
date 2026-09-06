@@ -1,0 +1,81 @@
+#version 460 core
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// Bounding box and draw parameters for each 32x32x32 section
+struct SectionDrawInfo {
+    vec4 minPos;      // xyz = world min (block coords), w = active flag
+    vec4 maxPos;      // xyz = world max (block coords), w = quad count
+    uint firstIndex;  // offset in quad index buffer
+    int  baseVertex;  // base vertex index
+    uint quadCount;   // number of quads
+    uint padding;
+};
+
+struct DrawElementsIndirectCommand {
+    uint count;         // indices count (quadCount * 6)
+    uint instanceCount; // 1 if visible, 0 if culled
+    uint firstIndex;
+    int  baseVertex;
+    uint baseInstance;
+};
+
+layout(std430, binding = 0) readonly buffer SectionBuffer {
+    SectionDrawInfo uSections[];
+};
+
+layout(std430, binding = 1) writeonly buffer CommandBuffer {
+    DrawElementsIndirectCommand uCommands[];
+};
+
+layout(std430, binding = 2) buffer CounterBuffer {
+    uint uVisibleCount;
+};
+
+// Frustum planes: ax + by + cz + d = 0 (normals pointing inward)
+uniform vec4 uFrustumPlanes[6];
+uniform uint uTotalSections;
+
+bool isBoxInFrustum(vec3 bMin, vec3 bMax) {
+    for (int i = 0; i < 6; i++) {
+        vec4 plane = uFrustumPlanes[i];
+        // Calculate positive vertex along plane normal
+        vec3 p = bMin;
+        if (plane.x >= 0.0) p.x = bMax.x;
+        if (plane.y >= 0.0) p.y = bMax.y;
+        if (plane.z >= 0.0) p.z = bMax.z;
+
+        if (dot(plane.xyz, p) + plane.w < 0.0) {
+            return false; // Outside frustum
+        }
+    }
+    return true;
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= uTotalSections) return;
+
+    SectionDrawInfo sec = uSections[index];
+    if (sec.minPos.w <= 0.0 || sec.quadCount == 0) {
+        // Inactive section
+        uCommands[index].count = 0;
+        uCommands[index].instanceCount = 0;
+        return;
+    }
+
+    bool visible = isBoxInFrustum(sec.minPos.xyz, sec.maxPos.xyz);
+
+    DrawElementsIndirectCommand cmd;
+    cmd.count = sec.quadCount * 6;
+    cmd.instanceCount = visible ? 1u : 0u;
+    cmd.firstIndex = sec.firstIndex;
+    cmd.baseVertex = sec.baseVertex;
+    cmd.baseInstance = index;
+
+    uCommands[index] = cmd;
+
+    if (visible) {
+        atomicAdd(uVisibleCount, 1u);
+    }
+}

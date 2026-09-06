@@ -1,0 +1,8 @@
+{
+    "ling_horizons2.title": "LING Horizons 2.0",
+    "ling_horizons2.description": "Next-Gen GPU-Driven Voxel LOD Rendering Engine",
+    "ling_horizons2.options.enabled": "Enable Voxel LOD",
+    "ling_horizons2.options.render_distance": "LOD Render Distance",
+    "ling_horizons2.options.earth_curvature": "Planetary Curvature",
+    "ling_horizons2.options.storage_engine": "Storage Backend"
+}
