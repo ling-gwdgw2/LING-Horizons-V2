@@ -2,22 +2,22 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-// Bounding box and draw parameters for each 32x32x32 section
+// Bounding box and draw parameters for each 32x32x32 section (48 bytes)
 struct SectionDrawInfo {
-    vec4 minPos;      // xyz = world min (block coords), w = active flag
-    vec4 maxPos;      // xyz = world max (block coords), w = quad count
-    uint firstIndex;  // offset in quad index buffer
-    int  baseVertex;  // base vertex index
-    uint quadCount;   // number of quads
-    uint padding;
+    vec4 minPos;      // xyz = world min (block coords), w = active flag (> 0.0)
+    vec4 maxPos;      // xyz = world max (block coords), w = float(quadCount)
+    uint firstQuad;   // offset in quad buffer (quad index)
+    uint quadCount;   // number of quads in this section
+    uint padding0;
+    uint padding1;
 };
 
-struct DrawElementsIndirectCommand {
-    uint count;         // indices count (quadCount * 6)
+// Standard OpenGL 4.6 DrawArraysIndirectCommand (16 bytes)
+struct DrawArraysIndirectCommand {
+    uint count;         // vertex count = quadCount * 6
     uint instanceCount; // 1 if visible, 0 if culled
-    uint firstIndex;
-    int  baseVertex;
-    uint baseInstance;
+    uint first;         // first vertex index = firstQuad * 6
+    uint baseInstance;  // section index
 };
 
 layout(std430, binding = 0) readonly buffer SectionBuffer {
@@ -25,15 +25,16 @@ layout(std430, binding = 0) readonly buffer SectionBuffer {
 };
 
 layout(std430, binding = 1) writeonly buffer CommandBuffer {
-    DrawElementsIndirectCommand uCommands[];
+    DrawArraysIndirectCommand uCommands[];
 };
 
 layout(std430, binding = 2) buffer CounterBuffer {
     uint uVisibleCount;
 };
 
-// Frustum planes: ax + by + cz + d = 0 (normals pointing inward)
+// Frustum planes in camera-relative space: ax + by + cz + d = 0
 uniform vec4 uFrustumPlanes[6];
+uniform vec3 uCameraPos;
 uniform uint uTotalSections;
 
 bool isBoxInFrustum(vec3 bMin, vec3 bMax) {
@@ -57,20 +58,25 @@ void main() {
     if (index >= uTotalSections) return;
 
     SectionDrawInfo sec = uSections[index];
-    if (sec.minPos.w <= 0.0 || sec.quadCount == 0) {
-        // Inactive section
-        uCommands[index].count = 0;
-        uCommands[index].instanceCount = 0;
+    if (sec.minPos.w <= 0.0 || sec.quadCount == 0u) {
+        // Inactive or empty section
+        uCommands[index].count = 0u;
+        uCommands[index].instanceCount = 0u;
+        uCommands[index].first = 0u;
+        uCommands[index].baseInstance = index;
         return;
     }
 
-    bool visible = isBoxInFrustum(sec.minPos.xyz, sec.maxPos.xyz);
+    // Camera-relative bounding box for culling
+    vec3 relMin = sec.minPos.xyz - uCameraPos;
+    vec3 relMax = sec.maxPos.xyz - uCameraPos;
 
-    DrawElementsIndirectCommand cmd;
-    cmd.count = sec.quadCount * 6;
+    bool visible = isBoxInFrustum(relMin, relMax);
+
+    DrawArraysIndirectCommand cmd;
+    cmd.count = sec.quadCount * 6u;
     cmd.instanceCount = visible ? 1u : 0u;
-    cmd.firstIndex = sec.firstIndex;
-    cmd.baseVertex = sec.baseVertex;
+    cmd.first = sec.firstQuad * 6u;
     cmd.baseInstance = index;
 
     uCommands[index] = cmd;

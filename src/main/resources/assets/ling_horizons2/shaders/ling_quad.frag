@@ -25,17 +25,19 @@ void main() {
     vec4 baseColor = uMaterialColors[vMaterial];
     if (baseColor.a < 0.05) discard;
 
-    // Simple directional lighting
-    float sunDot = max(dot(vNormal, normalize(uSunDirection)), 0.0);
-    float diffuse = 0.4 + 0.6 * sunDot;
+    // Directional sunlight
+    vec3 sunDir = length(uSunDirection) > 0.01 ? normalize(uSunDirection) : vec3(0.3, 0.9, 0.3);
+    float sunDot = max(dot(vNormal, sunDir), 0.0);
+    float diffuse = 0.5 + 0.5 * sunDot;
 
-    // Lightmap simulation: combine block light and sky light
-    float lightLevel = max(vLight.x * 0.9, vLight.y * 0.8 + 0.15);
+    // Lightmap simulation: combine block light and sky light with ambient minimum
+    float lightLevel = max(max(vLight.x * 0.9, vLight.y * 0.85), 0.25);
     vec3 litColor = baseColor.rgb * diffuse * lightLevel;
 
     // Linear distance fog
     float dist = length(vWorldPos - uCameraPos);
-    float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
+    float fogSpan = max(uFogEnd - uFogStart, 1.0);
+    float fog = clamp((dist - uFogStart) / fogSpan, 0.0, 1.0);
 
     vec3 finalRgb = mix(litColor, uFogColor.rgb, fog);
     outColor = vec4(finalRgb, baseColor.a);

@@ -59,9 +59,12 @@ const vec2 CORNER_UVS[4] = vec2[4](
     vec2(1.0, 0.0)
 );
 
+// 6 vertices per quad forming 2 triangles: (0, 1, 2) and (0, 2, 3)
+const uint CORNER_INDICES[6] = uint[6](0u, 1u, 2u, 0u, 2u, 3u);
+
 void main() {
-    uint quadIndex = gl_VertexID / 4;
-    uint cornerIndex = gl_VertexID % 4;
+    uint quadIndex = gl_VertexID / 6u;
+    uint cornerIndex = CORNER_INDICES[gl_VertexID % 6u];
 
     PackedQuad q = uQuads[quadIndex];
 
@@ -86,10 +89,13 @@ void main() {
     vec3 secOrigin = uSectionOrigins[gl_BaseInstance].xyz;
     vec3 worldPos = secOrigin + localPos;
 
+    // Camera-relative position for float precision
+    vec3 relPos = worldPos - uCameraPos;
+
     // Apply Geodesic Planetary Curvature
     if (uCurvatureRadius > 0.0) {
-        vec3 delta = worldPos - uCameraPos;
-        float distSq = dot(delta.xz, delta.xz);
+        float distSq = dot(relPos.xz, relPos.xz);
+        relPos.y -= distSq / (2.0 * uCurvatureRadius);
         worldPos.y -= distSq / (2.0 * uCurvatureRadius);
     }
 
@@ -100,5 +106,5 @@ void main() {
     vMaterial = mat;
     vTint = tint;
 
-    gl_Position = uViewProjMatrix * vec4(worldPos, 1.0);
+    gl_Position = uViewProjMatrix * vec4(relPos, 1.0);
 }
